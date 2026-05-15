@@ -49,7 +49,6 @@
 <body>
 
 <div id="ui-layer">
-    <!-- ステータス -->
     <div class="ui-panel interactive" style="position:absolute; top:20px; left:20px;">
         <div class="text-green-800 font-bold">🌿 森のささやき島 3D</div>
         <div class="flex items-center gap-3 mt-1">
@@ -58,15 +57,14 @@
         </div>
     </div>
 
-    <!-- 操作ガイド -->
-    <div class="instruction">WASDで移動 / マウスドラッグで視点変更 / クリックで収穫・釣り</div>
+    <div class="instruction">WASDで移動 / マウスドラッグで視点変更 / クリックでアクション</div>
 
-    <!-- インベントリ -->
     <div class="ui-panel interactive" style="position:absolute; bottom:20px; left:50%; transform:translateX(-50%); display:flex; gap:10px;">
         <div class="flex flex-col items-center">🍎<span id="count-apple" class="text-xs">0</span></div>
         <div class="flex flex-col items-center">🍊<span id="count-orange" class="text-xs">0</span></div>
         <div class="flex flex-col items-center">🐟<span id="count-fish" class="text-xs">0</span></div>
-        <div class="flex flex-col items-center">🥢<span id="count-stick" class="text-xs">0</span></div>
+        <div class="flex flex-col items-center">🐚<span id="count-shell" class="text-xs">0</span></div>
+        <div class="flex flex-col items-center">🦴<span id="count-fossil" class="text-xs">0</span></div>
     </div>
 
     <div class="interactive" style="position:absolute; top:20px; right:20px;">
@@ -78,17 +76,18 @@
 
 <div id="toast"></div>
 
-<!-- 商店モーダル -->
 <div id="shop-modal" class="modal">
     <h3 class="text-xl font-bold mb-4 text-center text-yellow-800">タヌキ商店</h3>
-    <div class="space-y-3">
-        <button onclick="sellAll('apple', 10)" class="w-full bg-white border-2 border-yellow-200 p-2 rounded-xl text-sm hover:bg-yellow-50">🍎 リンゴをすべて売る</button>
-        <button onclick="sellAll('fish', 50)" class="w-full bg-white border-2 border-blue-200 p-2 rounded-xl text-sm hover:bg-blue-50">🐟 サカナをすべて売る</button>
+    <div class="space-y-2 overflow-y-auto max-h-64">
+        <button onclick="sellAll('apple', 10)" class="w-full bg-white border-2 border-red-100 p-2 rounded-xl text-sm hover:bg-red-50">🍎 リンゴを売る (10B)</button>
+        <button onclick="sellAll('orange', 15)" class="w-full bg-white border-2 border-orange-100 p-2 rounded-xl text-sm hover:bg-orange-50">🍊 オレンジを売る (15B)</button>
+        <button onclick="sellAll('fish', 50)" class="w-full bg-white border-2 border-blue-100 p-2 rounded-xl text-sm hover:bg-blue-50">🐟 サカナを売る (50B)</button>
+        <button onclick="sellAll('shell', 20)" class="w-full bg-white border-2 border-pink-100 p-2 rounded-xl text-sm hover:bg-pink-50">🐚 貝殻を売る (20B)</button>
+        <button onclick="sellAll('fossil', 150)" class="w-full bg-white border-2 border-gray-200 p-2 rounded-xl text-sm hover:bg-gray-100">🦴 化石を売る (150B)</button>
     </div>
     <button onclick="toggleModal('shop-modal')" class="mt-6 w-full py-2 bg-gray-300 rounded-xl">とじる</button>
 </div>
 
-<!-- クラフトモーダル -->
 <div id="craft-modal" class="modal">
     <h3 class="text-xl font-bold mb-4 text-center text-green-800">建築メニュー</h3>
     <div class="space-y-3 overflow-y-auto max-h-60">
@@ -100,11 +99,11 @@
 </div>
 
 <script>
-    let scene, camera, renderer, clock, player;
+    let scene, camera, renderer, clock, player, sprout;
     const playerState = {
-        x: 0, z: 0, rotation: 0,
         coins: 50,
-        inventory: { apple: 0, orange: 0, fish: 0, stick: 0 }
+        inventory: { apple: 0, orange: 0, fish: 0, shell: 0, fossil: 0 },
+        isMoving: false
     };
     const moveState = { forward: false, backward: false, left: false, right: false };
     const objects = [];
@@ -113,7 +112,6 @@
 
     function init() {
         scene = new THREE.Scene();
-        // ジブリのような鮮やかな空の色
         scene.background = new THREE.Color(0xa1c4fd);
         scene.fog = new THREE.FogExp2(0xa1c4fd, 0.005);
 
@@ -126,52 +124,88 @@
 
         clock = new THREE.Clock();
 
-        // ライティング
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
         scene.add(ambientLight);
         const sunLight = new THREE.DirectionalLight(0xfff0dd, 0.6);
         sunLight.position.set(50, 100, 50);
         scene.add(sunLight);
 
-        // 地面 (水彩画のような緑)
+        // Ground
         const groundGeo = new THREE.CircleGeometry(500, 64);
         const groundMat = new THREE.MeshPhongMaterial({ color: 0x91cf60 });
         const ground = new THREE.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        // プレイヤー (CapsuleGeometryエラー回避のため、球体と円柱で作成)
+        // Beach
+        const beachGeo = new THREE.RingGeometry(80, 100, 64);
+        const beachMat = new THREE.MeshPhongMaterial({ color: 0xffecb3 });
+        const beach = new THREE.Mesh(beachGeo, beachMat);
+        beach.rotation.x = -Math.PI / 2;
+        beach.position.y = 0.02;
+        scene.add(beach);
+
+        // Player
         player = new THREE.Group();
-        
-        const bodyGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 16);
-        const bodyMat = new THREE.MeshPhongMaterial({ color: 0xfdf5e6 });
-        const body = new THREE.Mesh(bodyGeo, bodyMat);
-        body.position.y = 1;
-        player.add(body);
+        const whiteMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+        const blackMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
+        const pinkMat = new THREE.MeshPhongMaterial({ color: 0xffb7c5 });
+        const leafMat = new THREE.MeshPhongMaterial({ color: 0x4caf50 });
 
-        const headGeo = new THREE.SphereGeometry(0.5, 16, 16);
-        const head = new THREE.Mesh(headGeo, bodyMat);
-        head.position.y = 1.5;
-        player.add(head);
+        const bodyBottom = new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 16), whiteMat);
+        bodyBottom.position.y = 0.6;
+        bodyBottom.scale.set(1.1, 0.9, 1.1);
+        player.add(bodyBottom);
 
-        const bottomGeo = new THREE.SphereGeometry(0.5, 16, 16);
-        const bottom = new THREE.Mesh(bottomGeo, bodyMat);
-        bottom.position.y = 0.5;
-        player.add(bottom);
+        const bodyTop = new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), whiteMat);
+        bodyTop.position.y = 1.3;
+        player.add(bodyTop);
 
-        player.position.y = 0;
+        const eyeGeo = new THREE.SphereGeometry(0.06, 8, 8);
+        const leftEye = new THREE.Mesh(eyeGeo, blackMat);
+        leftEye.position.set(0.2, 1.4, 0.45);
+        player.add(leftEye);
+        const rightEye = new THREE.Mesh(eyeGeo, blackMat);
+        rightEye.position.set(-0.2, 1.4, 0.45);
+        player.add(rightEye);
+
+        const cheekGeo = new THREE.SphereGeometry(0.1, 8, 8);
+        const leftCheek = new THREE.Mesh(cheekGeo, pinkMat);
+        leftCheek.position.set(0.35, 1.25, 0.4);
+        leftCheek.scale.set(1, 0.5, 1);
+        player.add(leftCheek);
+        const rightCheek = new THREE.Mesh(cheekGeo, pinkMat);
+        rightCheek.position.set(-0.35, 1.25, 0.4);
+        rightCheek.scale.set(1, 0.5, 1);
+        player.add(rightCheek);
+
+        sprout = new THREE.Group();
+        const leaf1 = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), leafMat);
+        leaf1.scale.set(1, 0.2, 0.5);
+        leaf1.position.set(0.1, 0, 0);
+        leaf1.rotation.z = 0.3;
+        sprout.add(leaf1);
+        const leaf2 = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), leafMat);
+        leaf2.scale.set(1, 0.2, 0.5);
+        leaf2.position.set(-0.1, 0, 0);
+        leaf2.rotation.z = -0.3;
+        sprout.add(leaf2);
+        sprout.position.y = 1.85;
+        player.add(sprout);
+
         scene.add(player);
 
-        // 自然生成
-        for(let i=0; i<80; i++) spawnTree();
-        for(let i=0; i<30; i++) spawnPond();
+        // Spawning items
+        for(let i=0; i<40; i++) spawnTree('apple');
+        for(let i=0; i<30; i++) spawnTree('orange');
+        for(let i=0; i<25; i++) spawnPond();
+        for(let i=0; i<25; i++) spawnFossilMark();
+        for(let i=0; i<40; i++) spawnShell();
         for(let i=0; i<150; i++) spawnFlower();
 
-        // 商店と博物館
         createBuilding(-10, -10, 0xfbc02d, "商店");
         createBuilding(10, -15, 0x90caf9, "博物館");
 
-        // イベント
         window.addEventListener('keydown', (e) => updateMovement(e.code, true));
         window.addEventListener('keyup', (e) => updateMovement(e.code, false));
         window.addEventListener('mousedown', (e) => { if(e.target.tagName === 'CANVAS') isMouseDown = true; });
@@ -183,70 +217,148 @@
         animate();
     }
 
-    function spawnTree() {
-        const x = (Math.random() - 0.5) * 200;
-        const z = (Math.random() - 0.5) * 200;
-        if (Math.abs(x) < 5 && Math.abs(z) < 5) return;
-
+    // Updated Fruit Logic with Detail
+    function spawnTree(fruitType) {
+        const x = (Math.random() - 0.5) * 160;
+        const z = (Math.random() - 0.5) * 160;
+        if (Math.abs(x) < 8 && Math.abs(z) < 8) return;
         const group = new THREE.Group();
-        
-        const trunkGeo = new THREE.CylinderGeometry(0.2, 0.3, 2);
-        const trunkMat = new THREE.MeshPhongMaterial({ color: 0x795548 });
-        const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 2), new THREE.MeshPhongMaterial({ color: 0x795548 }));
         trunk.position.y = 1;
         group.add(trunk);
-
-        const leavesGeo = new THREE.SphereGeometry(1.2, 8, 8);
-        const leavesMat = new THREE.MeshPhongMaterial({ color: 0x4a7c44, flatShading: true });
-        const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+        const leaves = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 8), new THREE.MeshPhongMaterial({ color: 0x4a7c44, flatShading: true }));
         leaves.position.y = 2.5;
         group.add(leaves);
+        
+        // Fruit Visual Improvement
+        const fruitGroup = new THREE.Group();
+        const fruitGeo = new THREE.SphereGeometry(0.18, 12, 12);
+        const fruitMat = new THREE.MeshPhongMaterial({ 
+            color: fruitType === 'apple' ? 0xff3d00 : 0xffa000,
+            shininess: 100 
+        });
+        const fruit = new THREE.Mesh(fruitGeo, fruitMat);
+        fruitGroup.add(fruit);
+
+        // Add Stem (枝)
+        const stemGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.15);
+        const stem = new THREE.Mesh(stemGeo, new THREE.MeshPhongMaterial({color: 0x4e342e}));
+        stem.position.y = 0.18;
+        fruitGroup.add(stem);
+
+        // Add Leaf to fruit for Apple
+        if(fruitType === 'apple') {
+            const fLeafGeo = new THREE.SphereGeometry(0.08, 8, 8);
+            const fLeaf = new THREE.Mesh(fLeafGeo, new THREE.MeshPhongMaterial({color: 0x64dd17}));
+            fLeaf.scale.set(1, 0.1, 0.5);
+            fLeaf.position.set(0.05, 0.22, 0);
+            fLeaf.rotation.z = 0.5;
+            fruitGroup.add(fLeaf);
+        }
+
+        fruitGroup.position.set(0.6, 2.2, 0.6);
+        group.add(fruitGroup);
 
         group.position.set(x, 0, z);
-        group.userData = { type: 'tree' };
+        group.userData = { type: 'tree', fruit: fruitType };
         scene.add(group);
         objects.push(group);
+    }
+
+    function spawnFossilMark() {
+        const x = (Math.random() - 0.5) * 150;
+        const z = (Math.random() - 0.5) * 150;
+        if (Math.abs(x) < 10 && Math.abs(z) < 10) return;
+        const group = new THREE.Group();
+        
+        // Visual Improvement: Mound of dirt with crack
+        const mound = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 8), new THREE.MeshPhongMaterial({color: 0x8d6e63}));
+        mound.scale.y = 0.1;
+        group.add(mound);
+
+        const markMat = new THREE.MeshPhongMaterial({ color: 0x4e342e });
+        const m1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.08), markMat);
+        m1.rotation.y = Math.PI / 4;
+        m1.position.y = 0.05;
+        const m2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.08), markMat);
+        m2.rotation.y = -Math.PI / 4;
+        m2.position.y = 0.05;
+        group.add(m1, m2);
+
+        group.position.set(x, 0, z);
+        group.userData = { type: 'fossil' };
+        scene.add(group);
+        objects.push(group);
+    }
+
+    // Shell Design: Spiraled Snail Style
+    function spawnShell() {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 85 + Math.random() * 10;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        
+        const shellGroup = new THREE.Group();
+        const mat = new THREE.MeshPhongMaterial({ color: 0xfff1f1 });
+        
+        // Create 3 segments for a spiral look
+        for(let i=0; i<3; i++) {
+            const seg = new THREE.Mesh(new THREE.SphereGeometry(0.2 - (i*0.05), 8, 8), mat);
+            seg.position.x = i * 0.15;
+            seg.scale.set(1.2, 1, 1);
+            shellGroup.add(seg);
+        }
+        
+        shellGroup.position.set(x, 0.1, z);
+        shellGroup.rotation.y = Math.random() * Math.PI;
+        shellGroup.userData = { type: 'shell' };
+        scene.add(shellGroup);
+        objects.push(shellGroup);
     }
 
     function spawnPond() {
         const x = (Math.random() - 0.5) * 180;
         const z = (Math.random() - 0.5) * 180;
-        const pondGeo = new THREE.CircleGeometry(2 + Math.random() * 3, 16);
-        const pondMat = new THREE.MeshPhongMaterial({ color: 0x4fc3f7, transparent: true, opacity: 0.8 });
-        const pond = new THREE.Mesh(pondGeo, pondMat);
+        const group = new THREE.Group();
+
+        const pond = new THREE.Mesh(new THREE.CircleGeometry(3, 24), new THREE.MeshPhongMaterial({ 
+            color: 0x4fc3f7, transparent: true, opacity: 0.7 
+        }));
         pond.rotation.x = -Math.PI / 2;
-        pond.position.set(x, 0.01, z);
-        pond.userData = { type: 'pond' };
-        scene.add(pond);
-        objects.push(pond);
+        group.add(pond);
+
+        // Add Fish Shadow
+        const shadow = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.01, 0.2), new THREE.MeshBasicMaterial({color: 0x01579b, transparent: true, opacity: 0.4}));
+        shadow.position.set(1, 0.01, 0);
+        shadow.userData = { isFish: true, offset: Math.random() * 10 };
+        group.add(shadow);
+
+        group.position.set(x, 0.01, z);
+        group.userData = { type: 'pond' };
+        scene.add(group);
+        objects.push(group);
     }
 
     function spawnFlower() {
         const x = (Math.random() - 0.5) * 250;
         const z = (Math.random() - 0.5) * 250;
-        const geo = new THREE.PlaneGeometry(0.4, 0.4);
-        const mat = new THREE.MeshPhongMaterial({ color: Math.random() > 0.5 ? 0xff4081 : 0xffeb3b, side: THREE.DoubleSide });
-        const flower = new THREE.Mesh(geo, mat);
-        flower.position.set(x, 0.2, z);
+        const flower = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.4), new THREE.MeshPhongMaterial({ 
+            color: Math.random() > 0.5 ? 0xff4081 : 0xffeb3b, side: THREE.DoubleSide 
+        }));
+        flower.position.set(x, 0.15, z);
         flower.rotation.x = -Math.PI / 4;
         scene.add(flower);
     }
 
     function createBuilding(x, z, color, type) {
         const group = new THREE.Group();
-        const bodyGeo = new THREE.BoxGeometry(4, 4, 4);
-        const bodyMat = new THREE.MeshPhongMaterial({ color: color });
-        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), new THREE.MeshPhongMaterial({ color: color }));
         body.position.y = 2;
         group.add(body);
-
-        const roofGeo = new THREE.ConeGeometry(4, 3, 4);
-        const roofMat = new THREE.MeshPhongMaterial({ color: 0x8b5a2b });
-        const roof = new THREE.Mesh(roofGeo, roofMat);
+        const roof = new THREE.Mesh(new THREE.ConeGeometry(4, 3, 4), new THREE.MeshPhongMaterial({ color: 0x8b5a2b }));
         roof.position.y = 5.5;
         roof.rotation.y = Math.PI / 4;
         group.add(roof);
-
         group.position.set(x, 0, z);
         group.userData = { type: 'building', buildingType: type };
         scene.add(group);
@@ -271,31 +383,38 @@
 
     function onMouseClick(e) {
         if (e.target.tagName !== 'CANVAS') return;
-
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera({x: 0, y: 0}, camera);
         const intersects = raycaster.intersectObjects(objects, true);
-
         if (intersects.length > 0) {
             let obj = intersects[0].object;
-            // 親グループがある場合はそれを取得
-            while(obj.parent && obj.parent !== scene) {
-                obj = obj.parent;
-            }
-            
-            const dist = intersects[0].distance;
-            if (dist > 8) return;
+            while(obj.parent && obj.parent !== scene) obj = obj.parent;
+            if (intersects[0].distance > 8) return;
 
             if (obj.userData.type === 'tree') {
-                playerState.inventory.apple++;
-                showMessage("🍎 リンゴを収穫した！");
+                const f = obj.userData.fruit;
+                playerState.inventory[f]++;
+                showMessage(`${f === 'apple' ? '🍎 リンゴ' : '🍊 オレンジ'}を収穫した！`);
             } else if (obj.userData.type === 'pond') {
                 if(Math.random() > 0.5) {
                     playerState.inventory.fish++;
                     showMessage("🐟 魚が釣れた！");
+                } else showMessage("逃げられた...");
+            } else if (obj.userData.type === 'fossil') {
+                if(Math.random() > 0.3) {
+                    playerState.inventory.fossil++;
+                    showMessage("🦴 化石を掘り出した！");
                 } else {
-                    showMessage("逃げられた...");
+                    playerState.coins += 100;
+                    showMessage("💰 100ベルが埋まっていた！");
                 }
+                scene.remove(obj);
+                objects.splice(objects.indexOf(obj), 1);
+            } else if (obj.userData.type === 'shell') {
+                playerState.inventory.shell++;
+                showMessage("🐚 貝殻を拾った！");
+                scene.remove(obj);
+                objects.splice(objects.indexOf(obj), 1);
             } else if (obj.userData.type === 'building' && obj.userData.buildingType === '商店') {
                 toggleModal('shop-modal');
             }
@@ -306,8 +425,8 @@
     function animate() {
         requestAnimationFrame(animate);
         const delta = clock.getDelta();
+        const time = Date.now() * 0.001;
 
-        // プレイヤー移動
         const moveDir = new THREE.Vector3();
         if (moveState.forward) moveDir.z -= 1;
         if (moveState.backward) moveDir.z += 1;
@@ -318,24 +437,29 @@
             moveDir.normalize();
             moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
             player.position.addScaledVector(moveDir, 8 * delta);
-            // 進行方向を向く
-            const targetRotation = Math.atan2(moveDir.x, moveDir.z);
-            player.rotation.y = targetRotation;
+            player.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+            player.position.y = Math.abs(Math.sin(time * 12)) * 0.3;
+            sprout.rotation.y = Math.sin(time * 15) * 0.5;
+        } else {
+            player.position.y = 0;
+            player.scale.y = 1 + Math.sin(time * 3) * 0.02;
+            sprout.rotation.y = Math.sin(time * 2) * 0.1;
         }
 
-        // カメラ更新 (三人称視点)
         const camOffset = new THREE.Vector3(0, 0, 10);
         camOffset.applyAxisAngle(new THREE.Vector3(1, 0, 0), pitch);
         camOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-        
         camera.position.copy(player.position).add(camOffset);
-        camera.lookAt(player.position.clone().add(new THREE.Vector3(0, 1, 0)));
+        camera.lookAt(player.position.clone().add(new THREE.Vector3(0, 1.2, 0)));
 
-        // 植物の揺れアニメーション
-        const time = Date.now() * 0.002;
         scene.traverse((child) => {
-            if (child.userData.type === 'tree') {
-                child.rotation.z = Math.sin(time) * 0.02;
+            if (child.userData.type === 'tree') child.rotation.z = Math.sin(time * 2) * 0.02;
+            // Fish swimming logic
+            if (child.userData.isFish) {
+                const offset = child.userData.offset;
+                child.position.x = Math.sin(time + offset) * 1.5;
+                child.position.z = Math.cos(time + offset) * 1.5;
+                child.rotation.y = -(time + offset);
             }
         });
 
@@ -356,14 +480,11 @@
         const costs = { log_house: 100, castle: 300, fountain: 50 };
         if (playerState.coins >= costs[type]) {
             playerState.coins -= costs[type];
-            const color = type === 'log_house' ? 0xd7ccc8 : (type === 'castle' ? 0xffffff : 0x80deea);
-            createBuilding(player.position.x + 3, player.position.z + 3, color, "マイハウス");
+            createBuilding(player.position.x + 3, player.position.z + 3, type === 'log_house' ? 0xd7ccc8 : (type === 'castle' ? 0xffffff : 0x80deea), "マイハウス");
             updateUI();
-            showMessage("✨ 建築が完了しただも！");
+            showMessage("✨ 建築完了だも！");
             toggleModal('craft-modal');
-        } else {
-            showMessage("ベルが足りないだも...");
-        }
+        } else showMessage("ベルが足りないだも...");
     }
 
     function showMessage(text) {
@@ -376,7 +497,10 @@
     function updateUI() {
         document.getElementById('coin-count').innerText = playerState.coins;
         document.getElementById('count-apple').innerText = playerState.inventory.apple;
+        document.getElementById('count-orange').innerText = playerState.inventory.orange;
         document.getElementById('count-fish').innerText = playerState.inventory.fish;
+        document.getElementById('count-shell').innerText = playerState.inventory.shell;
+        document.getElementById('count-fossil').innerText = playerState.inventory.fossil;
     }
 
     function toggleModal(id) {
@@ -398,4 +522,4 @@
     window.onload = init;
 </script>
 </body>
-</html><!DOCTYPE html>
+</html>
